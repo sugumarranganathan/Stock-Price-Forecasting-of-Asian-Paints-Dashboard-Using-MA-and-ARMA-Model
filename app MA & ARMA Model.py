@@ -3,23 +3,22 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tsa.ar_model import AutoReg
+from statsmodels.tsa.arima.model import ARIMA
 
 # ==================================================
 # PAGE CONFIGURATION
 # ==================================================
 
 st.set_page_config(
-    page_title="Asian Paints Stock Forecasting Dashboard",
+    page_title="Britannia Stock Forecast Dashboard",
     layout="wide"
 )
 
-st.title("📈 Asian Paints Stock Price Forecasting Dashboard")
-st.markdown("### Stock Price Forecasting Using AutoRegressive (AR) Model")
+st.title("📈 Britannia Stock Price Forecasting Dashboard")
+st.markdown("### Stock Price Forecasting Using MA and ARMA Models")
 
 # ==================================================
 # LOAD DATA
@@ -31,17 +30,48 @@ except:
     st.error("Dataset file not found.")
     st.stop()
 
+uploaded_file = st.file_uploader(
+    "Upload CSV File (Optional)",
+    type=["csv"]
+)
+
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+
 # ==================================================
 # DATA CLEANING
 # ==================================================
 
-df.columns = df.columns.str.lower()
+df.columns = df.columns.str.strip().str.lower()
 
 if "unnamed: 0" in df.columns:
     df.rename(columns={"unnamed: 0": "date"}, inplace=True)
 
-df["date"] = pd.to_datetime(df["date"])
+if "date" not in df.columns:
+    st.error("Date column not found in uploaded file.")
+    st.stop()
+
+df["date"] = pd.to_datetime(
+    df["date"],
+    errors="coerce"
+)
+
+df.dropna(subset=["date"], inplace=True)
+
+df.drop_duplicates(inplace=True)
+
 df.set_index("date", inplace=True)
+
+if "close" not in df.columns:
+    st.error("Close column not found in uploaded file.")
+    st.stop()
+
+df["close"] = pd.to_numeric(
+    df["close"],
+    errors="coerce"
+)
+
+df.dropna(subset=["close"], inplace=True)
 
 series = df["close"]
 
@@ -80,9 +110,10 @@ fig, ax = plt.subplots(figsize=(12,5))
 
 ax.plot(series.index, series.values)
 
-ax.set_title("Asian Paints Closing Price Trend")
+ax.set_title("Britannia Closing Price Trend")
 ax.set_xlabel("Date")
 ax.set_ylabel("Close Price")
+
 ax.grid(True)
 
 st.pyplot(fig)
@@ -113,12 +144,12 @@ st.pyplot(fig)
 
 st.header("🧪 ADF Stationarity Test")
 
-result = adfuller(series.dropna())
+adf_result = adfuller(series.dropna())
 
-st.write("ADF Statistic :", round(result[0],4))
-st.write("P Value :", round(result[1],6))
+st.write("ADF Statistic :", round(adf_result[0],4))
+st.write("P Value :", round(adf_result[1],6))
 
-if result[1] < 0.05:
+if adf_result[1] < 0.05:
     st.success("Series is Stationary")
 else:
     st.error("Series is Non-Stationary")
@@ -152,105 +183,150 @@ plot_pacf(series_diff,lags=30,ax=ax)
 st.pyplot(fig)
 
 # ==================================================
-# NORMALIZATION
-# ==================================================
-
-scaler = MinMaxScaler()
-
-data_scaled = scaler.fit_transform(
-    series.values.reshape(-1,1)
-)
-
-# ==================================================
 # TRAIN TEST SPLIT
 # ==================================================
 
-train_size = int(len(data_scaled)*0.80)
+train_size = int(len(series_diff)*0.80)
 
-train = data_scaled[:train_size]
-test = data_scaled[train_size:]
+train = series_diff[:train_size]
+test = series_diff[train_size:]
 
 # ==================================================
-# AR MODEL COMPARISON
+# MA MODEL COMPARISON
 # ==================================================
 
-st.header("📊 AR Model Comparison")
+st.header("📊 MA Model Comparison")
 
-results = []
+ma_results = []
 
-for lag in range(1,5):
+for q in range(1,4):
 
-    model = AutoReg(
-        train.flatten(),
-        lags=lag,
-        trend="c"
+    model = ARIMA(
+        train,
+        order=(0,0,q)
     )
 
     fit = model.fit()
 
-    forecast = fit.predict(
-        start=len(train),
-        end=len(train)+len(test)-1
+    forecast = fit.forecast(
+        steps=len(test)
     )
 
     rmse = np.sqrt(
         mean_squared_error(
             test,
-            forecast.reshape(-1,1)
+            forecast
         )
     )
 
-    results.append([
-        lag,
+    ma_results.append([
+        f"MA({q})",
         rmse
     ])
 
-result_df = pd.DataFrame(
-    results,
-    columns=["Lag","RMSE"]
+ma_df = pd.DataFrame(
+    ma_results,
+    columns=["Model","RMSE"]
 )
 
-result_df = result_df.sort_values(
-    "RMSE"
-)
+ma_df = ma_df.sort_values("RMSE")
 
 st.dataframe(
-    result_df,
+    ma_df,
     use_container_width=True
 )
 
-best_lag = int(
-    result_df.iloc[0]["Lag"]
+best_ma = ma_df.iloc[0]["Model"]
+
+st.success(
+    f"Best MA Model : {best_ma}"
+)
+
+# ==================================================
+# ARMA MODEL COMPARISON
+# ==================================================
+
+st.header("📊 ARMA Model Comparison")
+
+arma_results = []
+
+for p in range(1,4):
+
+    for q in range(1,4):
+
+        model = ARIMA(
+            train,
+            order=(p,0,q)
+        )
+
+        fit = model.fit()
+
+        forecast = fit.forecast(
+            steps=len(test)
+        )
+
+        rmse = np.sqrt(
+            mean_squared_error(
+                test,
+                forecast
+            )
+        )
+
+        arma_results.append([
+            p,
+            q,
+            rmse
+        ])
+
+arma_df = pd.DataFrame(
+    arma_results,
+    columns=[
+        "AR Order",
+        "MA Order",
+        "RMSE"
+    ]
+)
+
+arma_df = arma_df.sort_values("RMSE")
+
+st.dataframe(
+    arma_df,
+    use_container_width=True
+)
+
+best_p = int(
+    arma_df.iloc[0]["AR Order"]
+)
+
+best_q = int(
+    arma_df.iloc[0]["MA Order"]
 )
 
 st.success(
-    f"Best AR Lag = {best_lag}"
+    f"Best ARMA Model : ARMA({best_p},{best_q})"
 )
 
 # ==================================================
-# FINAL MODEL
+# FORECAST
 # ==================================================
 
-final_model = AutoReg(
-    data_scaled.flatten(),
-    lags=best_lag,
-    trend="c"
+st.header("🔮 Next 4-Day Forecast")
+
+best_model = ARIMA(
+    train,
+    order=(1,0,1)
 )
+best_fit = best_model.fit()
 
-final_fit = final_model.fit()
+future_diff = best_fit.forecast(steps=4)
 
-# ==================================================
-# NEXT 4 DAY FORECAST
-# ==================================================
+future_price = []
 
-forecast_scaled = final_fit.predict(
-    start=len(data_scaled),
-    end=len(data_scaled)+3
-)
+current_price = series.iloc[-1]
 
-forecast_price = scaler.inverse_transform(
-    forecast_scaled.reshape(-1,1)
-)
+for diff in future_diff:
+    current_price = current_price + diff
+    future_price.append(current_price)
 
 forecast_df = pd.DataFrame({
 
@@ -261,12 +337,12 @@ forecast_df = pd.DataFrame({
         "Day 4"
     ],
 
-    "Forecast Price (₹)":
-    forecast_price.flatten().round(2)
+    "Forecasted Close Price":[
+        round(x,2)
+        for x in future_price
+    ]
 
 })
-
-st.header("🔮 Next 4-Day Forecast")
 
 st.dataframe(
     forecast_df,
@@ -281,13 +357,13 @@ fig, ax = plt.subplots(figsize=(10,5))
 
 ax.plot(
     forecast_df["Day"],
-    forecast_df["Forecast Price (₹)"],
+    forecast_df["Forecasted Close Price"],
     marker="o",
     linewidth=2
 )
 
 for i,value in enumerate(
-    forecast_df["Forecast Price (₹)"]
+    forecast_df["Forecasted Close Price"]
 ):
 
     ax.annotate(
@@ -299,7 +375,7 @@ for i,value in enumerate(
     )
 
 ax.set_title(
-    f"Asian Paints Forecast Using AR({best_lag})"
+    f"Britannia Forecast Using ARMA({best_p},{best_q})"
 )
 
 ax.set_xlabel("Future Days")
@@ -315,14 +391,12 @@ st.pyplot(fig)
 st.header("📌 Conclusion")
 
 st.info(
-f"""
-Best AR Model : AR({best_lag})
-
-Forecast generated using the AutoRegressive model.
-
+    f"""
+Best MA Model : {best_ma}
+Best ARMA Model : ARMA({best_p},{best_q})
+Forecast for next 4 days generated using the
+best ARMA model based on lowest RMSE.
 Lower RMSE indicates better prediction accuracy.
-
-The model predicts the next 4 trading day closing prices of Asian Paints.
 """
 )
 
