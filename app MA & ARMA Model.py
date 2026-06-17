@@ -13,16 +13,17 @@ from statsmodels.tsa.arima.model import ARIMA
 # ==================================================
 
 st.set_page_config(
-    page_title="Britannia Stock Forecast Dashboard",
+    page_title="Asian Paints Stock Forecast Dashboard",
     layout="wide"
 )
 
-st.title("📈 Britannia Stock Price Forecasting Dashboard")
+st.title("📈 Asian Paints Stock Price Forecasting Dashboard")
 st.markdown("### Stock Price Forecasting Using MA and ARMA Models")
 
 # ==================================================
 # LOAD DATA
 # ==================================================
+
 
 try:
     df = pd.read_csv("ASIANPAINT.NS.csv")
@@ -30,13 +31,6 @@ except:
     st.error("Dataset file not found.")
     st.stop()
 
-uploaded_file = st.file_uploader(
-    "Upload CSV File (Optional)",
-    type=["csv"]
-)
-
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
 
 # ==================================================
 # DATA CLEANING
